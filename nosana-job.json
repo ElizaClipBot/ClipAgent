@@ -1,0 +1,32 @@
+{
+  "version": "0.1",
+  "type": "container",
+  "meta": {
+    "trigger": "dashboard"
+  },
+  "ops": [
+    {
+      "type": "container/run",
+      "id": "elizaclip",
+      "args": {
+        "image": "stefaronevan/elizaclip:latest",
+        "env": {
+          "TELEGRAM_BOT_TOKEN": "8686674308:AAFT-lLJx3wPB9xjR7QeTcXLYiUprM7Jz9A",
+          "OPENAI_API_KEY": "nosana",
+          "OPENAI_BASE_URL": "http://127.0.0.1:3939/v1",
+          "OPENAI_LARGE_MODEL": "Qwen3.5-9B-FP8",
+          "OPENAI_SMALL_MODEL": "Qwen3.5-9B-FP8",
+          "OPENAI_EMBEDDING_URL": "https://4yiccatpyxx773jtewo5ccwhw1s2hezq5pehndb6fcfq.node.k8s.prd.nos.ci/v1",
+          "OPENAI_EMBEDDING_API_KEY": "nosana",
+          "OPENAI_EMBEDDING_MODEL": "Qwen3-Embedding-0.6B",
+          "OPENAI_EMBEDDING_DIMENSIONS": "1024",
+          "SERVER_PORT": "3000",
+          "NODE_ENV": "production"
+        },
+        "expose": [
+          { "port": 3000 }
+        ]
+      }
+    }
+  ]
+}

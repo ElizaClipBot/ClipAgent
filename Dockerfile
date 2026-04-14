@@ -5,9 +5,14 @@ FROM node:23-slim AS base
 # Install system dependencies needed for native modules (e.g. better-sqlite3)
 RUN apt-get update && apt-get install -y \
   python3 \
+  python3-pip \
   make \
   g++ \
   git \
+  ffmpeg \
+  ca-certificates \
+  curl \
+  && pip3 install --no-cache-dir --break-system-packages yt-dlp \
   && rm -rf /var/lib/apt/lists/*
 
 # Disable telemetry
@@ -16,8 +21,8 @@ ENV DO_NOT_TRACK=1
 
 WORKDIR /app
 
-# Install pnpm
-RUN npm install -g pnpm
+# Install pnpm + bun (elizaos CLI runs its server via bun)
+RUN npm install -g pnpm bun
 
 # Copy package manifest and install dependencies
 COPY package.json ./
@@ -34,4 +39,7 @@ EXPOSE 3000
 ENV NODE_ENV=production
 ENV SERVER_PORT=3000
 
-CMD ["pnpm", "start"]
+COPY docker-start.sh /app/docker-start.sh
+RUN chmod +x /app/docker-start.sh
+
+CMD ["/app/docker-start.sh"]
