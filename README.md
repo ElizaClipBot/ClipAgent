@@ -1,274 +1,223 @@
-# Nosana x ElizaOS Agent Challenge
+# ElizaClip
+
+**Personal AI agent that turns long YouTube videos into viral Shorts — chat with it on Telegram or the web, and it posts directly to your channel.**
+
+Built on [ElizaOS](https://elizaos.com), runs on [Nosana](https://nosana.com) decentralized GPUs, inference by Qwen3.5-9B-FP8.
 
 ![ElizaOS](./assets/NosanaXEliza.jpg)
 
-Build your own **personal AI agent** using [ElizaOS](https://elizaos.com) and deploy it on the [Nosana](https://nosana.com) decentralized compute network. Win a share of **$3,000 USDC** in prizes.
+---
+
+## What It Does
+
+Paste a YouTube URL and ElizaClip will:
+
+1. **Explain** the video — pulls the transcript and summarizes it.
+2. **Clip** it — an LLM scans the transcript for the most viral moments, then `ffmpeg` cuts them into vertical 1080×1920 Shorts (≤59s).
+3. **Rate** the clips — scores each 1–10 for viral potential with reasoning.
+4. **Upload** straight to your YouTube channel as a Short, formatted with `#Shorts` title, hashtags, and privacy settings.
+
+Two surfaces, one brain:
+- **Telegram bot** — chat naturally, share links, ask for clips.
+- **Web UI** (`ElizaClipFrontend/`) — clip dashboard with SSE streaming, previews, and one-click upload.
+
+Both surfaces share the same agent runtime, the same memory (pglite), and the same character. Switching between them is seamless.
 
 ---
 
-## The Challenge
+## Architecture
 
-Inspired by [OpenClaw](https://openclaw.ai/) — the self-hosted personal AI movement — this challenge is about giving AI back to the individual. Build an agent that runs on **your own infrastructure**, handles **your own tasks**, and keeps **your own data**.
-
-> **Theme: Personal AI Agents** — Build an AI agent that acts as a personal assistant, automate your life, or solve a real problem for yourself or your community. The use case is entirely up to you.
-
-**Framework:** [ElizaOS](https://elizaos.com) (latest v2)
-**Compute:** [Nosana](https://nosana.com) decentralized GPU network
-**Model:** Qwen3.5-27B (hosted endpoint provided by Nosana)
-
----
-
-## Prizes — $3,000 USDC Total
-
-| Place | Prize |
-|-------|-------|
-| 🥇 1st | $1,000 USDC |
-| 🥈 2nd | $750 USDC |
-| 🥉 3rd | $450 USDC |
-| 4th | $200 USDC |
-| 5th–10th | $100 USDC each |
-
----
-
-## Schedule
-
-Follow Nosana's Luma for more information: [Nosana Luma](https://luma.com/calendar/cal-RF19mq3EtF4juLc)
-
-![](./assets/image.png)
-
----
-
-## What to Build
-
-There are no strict requirements on use case — build whatever is most useful to you. Some ideas to get started:
-
-- 🗂️ **Personal assistant** — calendar, tasks, email drafting, reminders
-- 🔍 **Research agent** — web search, summarization, knowledge synthesis
-- 📱 **Social media manager** — Twitter/X, Telegram, Discord automation
-- 💰 **DeFi/crypto agent** — portfolio monitoring, on-chain alerts, trading insights
-- 🏠 **Home automation** — smart home control, IoT integration
-- 🛠️ **DevOps helper** — monitor services, automate deployments
-- 🎨 **Content creator** — blog posts, social copy, creative writing
-
-**Tip:** ElizaOS has a rich [plugin ecosystem](https://elizaos.github.io/eliza/docs/core/plugins). Explore existing plugins and templates before building from scratch — you might find 80% of what you need already exists.
+```
+┌──────────────┐     ┌──────────────┐
+│   Telegram   │     │   Web UI     │
+│  (plugin)    │     │  (Next.js)   │
+└──────┬───────┘     └──────┬───────┘
+       │                    │
+       ▼                    ▼
+   ┌────────────────────────────┐
+   │    ElizaOS Runtime         │    ← one process, shared memory
+   │  ┌──────────────────────┐  │
+   │  │ elizaclip plugin     │  │
+   │  │  • EXPLAIN_YOUTUBE   │  │
+   │  │  • CLIP_YOUTUBE      │  │
+   │  │  • RATE_CLIPS        │  │
+   │  │  • UPLOAD_YOUTUBE    │  │
+   │  │  • /chat /stream ... │  │── HTTP routes for web UI
+   │  └──────────────────────┘  │
+   └──────────────┬─────────────┘
+                  │
+        ┌─────────┴─────────┐
+        ▼                   ▼
+  ┌──────────┐        ┌────────────┐
+  │ Qwen3.5  │        │ yt-dlp +   │
+  │ on Nosana│        │ ffmpeg     │
+  └──────────┘        └────────────┘
+```
 
 ---
 
-## Getting Started
+## Project Structure
 
-### Prerequisites
+```
+ElizaClip/
+├── characters/
+│   └── agent.character.json        # Personality, system prompt, plugin list
+├── src/
+│   ├── index.ts                    # Plugin entry — registers actions + HTTP routes
+│   ├── actions/
+│   │   ├── explain-youtube.ts      # Summarize a video from its transcript
+│   │   ├── clip-youtube.ts         # LLM picks viral moments → ffmpeg cuts clips
+│   │   ├── rate-clips.ts           # Score generated clips 1–10
+│   │   └── upload-youtube.ts       # Publish a clip to YouTube as a Short
+│   ├── youtube/
+│   │   ├── youtube.ts              # yt-dlp download, transcript, ffmpeg clipper
+│   │   ├── cache.ts                # Per-room clip cache (JSON on disk)
+│   │   └── json.ts                 # Robust LLM-JSON extractor
+│   └── http/
+│       └── web-api.ts              # Routes: /chat /stream /clips /upload
+├── scripts/
+│   ├── qwen-proxy.ts               # Local proxy that fronts the Nosana Qwen endpoint
+│   └── youtube-oauth.ts            # One-shot helper to mint a YouTube refresh token
+├── Dockerfile                      # Container image for Nosana deployment
+├── docker-start.sh                 # Boots Qwen proxy + agent
+├── nosana-job.json                 # Nosana deployment job definition (gitignored)
+└── .env.example
+```
+
+---
+
+## Prerequisites
 
 - Node.js 23+
-- pnpm (`npm install -g pnpm`)
-- Docker (for deployment)
-- Git
+- `bun` and `pnpm` (`npm i -g bun pnpm`)
+- `ffmpeg` and `yt-dlp` on `$PATH`
+- A Telegram bot token — create one via [@BotFather](https://t.me/botfather)
+- A YouTube OAuth app (Client ID / Secret / refresh token) — only needed for upload
 
-### Quick Start
+---
+
+## Local Setup
 
 ```bash
-# Fork this repo, then clone your fork
-git clone https://github.com/YOUR-USERNAME/agent-challenge
-cd agent-challenge
+git clone <your-fork>
+cd ElizaClip
 
-# Copy and configure environment variables
 cp .env.example .env
-# Edit .env with your Nosana endpoint details
+# fill in TELEGRAM_BOT_TOKEN + YOUTUBE_* (see below)
 
-# Install dependencies
-bun i -g @elizaos/cli
-
-# Start your agent in development mode
-elizaos dev
+pnpm install
+bun run dev        # starts ElizaOS on :3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) to see the ElizaOS built-in client.
+### Environment variables
 
----
-
-## Claim Your Nosana Builders Credits
-
-All challenge participants get **free compute credits** to deploy and run their agents on Nosana.
-
-**How to claim:**
-
-1. Visit [nosana.com/builders-credits](https://nosana.com/builders-credits)
-2. Sign up or log in with your wallet
-3. Your credits will be added to your account automatically
-4. Use these credits to deploy your ElizaOS agent to the Nosana network
-
-These credits cover the compute costs for running your agent during the challenge period.
-
-> **Note:** Credits are airdropped twice a day. Please be patient if you don't see them immediately after signing up.
-
----
-
-## Configure Your LLM
-
-Nosana provides a hosted **Qwen3.5-27B-AWQ-4bit** endpoint for challenge participants. Update your `.env`:
+See [.env.example](.env.example) for the full list. The essentials:
 
 ```env
+# LLM — Nosana-hosted Qwen
 OPENAI_API_KEY=nosana
-OPENAI_API_URL=https://6vq2bcqphcansrs9b88ztxfs88oqy7etah2ugudytv2x.node.k8s.prd.nos.ci/v1
-MODEL_NAME=Qwen3.5-27B-AWQ-4bit
-```
+OPENAI_BASE_URL=http://127.0.0.1:3939/v1     # the local Qwen proxy
+OPENAI_LARGE_MODEL=Qwen3.5-9B-FP8
+OPENAI_SMALL_MODEL=Qwen3.5-9B-FP8
 
-**Model Details:**
-- **Model ID:** `Qwen3.5-27B-AWQ-4bit`
-- **Max Context Length:** 60,000 tokens
-- **Provider:** Nosana decentralized inference
-- **Base Model:** cyankiwi/Qwen3.5-27B-AWQ-4bit
-
-### Option B: Local Development with Ollama
-
-```bash
-ollama pull qwen3.5:27b # or a smaller one for your system
-ollama serve
-```
-
-```env
-OPENAI_API_KEY=ollama
-OPENAI_API_URL=http://127.0.0.1:11434/v1
-MODEL_NAME=qwen3.5:27b
-```
-
----
-
-## Configure Your Embedding Model
-
-Nosana provides a hosted **Qwen3-Embedding-0.6B** endpoint for embeddings (used for RAG, semantic search, and memory). Update your `.env`:
-
-```env
+# Embeddings — Nosana-hosted
 OPENAI_EMBEDDING_URL=https://4yiccatpyxx773jtewo5ccwhw1s2hezq5pehndb6fcfq.node.k8s.prd.nos.ci/v1
 OPENAI_EMBEDDING_API_KEY=nosana
 OPENAI_EMBEDDING_MODEL=Qwen3-Embedding-0.6B
 OPENAI_EMBEDDING_DIMENSIONS=1024
+
+# Telegram
+TELEGRAM_BOT_TOKEN=...
+
+# YouTube OAuth (for upload) — see "YouTube OAuth" section below
+YOUTUBE_CLIENT_ID=...
+YOUTUBE_CLIENT_SECRET=...
+YOUTUBE_REFRESH_TOKEN=...
+
+SERVER_PORT=3000
 ```
 
-**Model Details:**
-- **Model ID:** `Qwen3-Embedding-0.6B`
-- **Dimensions:** 1024
-- **Provider:** Nosana decentralized inference
+### YouTube OAuth (first time only)
+
+1. In [Google Cloud Console](https://console.cloud.google.com/), create OAuth credentials for a **Desktop app**, enable **YouTube Data API v3**.
+2. Put the Client ID / Secret in `.env`.
+3. Mint a refresh token:
+   ```bash
+   bun run scripts/youtube-oauth.ts
+   ```
+   Follow the URL, paste back the code — it prints a `YOUTUBE_REFRESH_TOKEN`. Add it to `.env`.
 
 ---
 
-## Customize Your Agent
+## Usage
 
-### 1. Define your agent's character
+### Telegram
 
-Edit `characters/agent.character.json` to define your agent's personality, knowledge, and behavior:
+Talk to your bot:
 
-```json
-{
-  "name": "MyAgent",
-  "bio": ["Your agent's backstory and capabilities"],
-  "system": "Your agent's core instructions and behavior",
-  "plugins": ["@elizaos/plugin-bootstrap", "@elizaos/plugin-openai"],
-  "clients": ["direct"]
-}
-```
+- *"What's this about?"* + YouTube link → summary
+- *"Make 3 viral shorts from https://youtu.be/…"* → generates vertical 9:16 clips
+- *"Rate the clips"* → scores 1–10 with reasoning
+- *"Upload clip 1 to my YouTube"* → publishes as a private Short
 
-### 2. Add plugins
+### Web UI
 
-Extend your agent by adding plugins to `package.json` and your character file:
+The agent exposes HTTP routes under `/api/agents/<agentId>/plugins/elizaclip/*`:
 
-| Plugin | Use Case |
-|--------|----------|
-| `@elizaos/plugin-bootstrap` | Required base plugin |
-| `@elizaos/plugin-openai` | OpenAI-compatible LLM (required for Nosana endpoint) |
-| `@elizaos/plugin-web-search` | Web search capability |
-| `@elizaos/plugin-telegram` | Telegram bot client |
-| `@elizaos/plugin-discord` | Discord bot client |
-| `@elizaos/plugin-twitter` | Twitter/X integration |
-| `@elizaos/plugin-browser` | Browser/web automation |
-| `@elizaos/plugin-sql` | Database access |
+| Route            | Method | Purpose                         |
+|------------------|--------|---------------------------------|
+| `/chat`          | POST   | Send a user message             |
+| `/stream`        | GET    | Server-Sent Events of replies   |
+| `/clips`         | GET    | List generated clips            |
+| `/clips/file/:i` | GET    | Stream a clip (Range supported) |
+| `/upload`        | POST   | Publish clip `index` to YouTube |
 
-Install a plugin:
-```bash
-pnpm add @elizaos/plugin-web-search
-```
+The companion frontend in `../ElizaClipFrontend` wraps these routes in a Next.js UI. Start it with `bun run dev` (runs on :3001, proxies `/agent/*` → `:3000`).
 
-Add it to your character file:
-```json
-{
-  "plugins": ["@elizaos/plugin-bootstrap", "@elizaos/plugin-openai", "@elizaos/plugin-web-search"]
-}
-```
+### Memory is shared
 
-### 3. Build custom actions (optional)
-
-Add your own custom logic in `src/index.ts`. See the example plugin already included.
-
-### 4. Persistent storage
-
-SQLite is configured by default — sufficient for development and small-scale agents. For a production-grade personal agent, consider:
-
-- A mounted volume on Nosana
-- External database (PostgreSQL, PlanetScale, etc.)
-- Decentralized storage (Arweave, IPFS)
+Both surfaces write to the same pglite database. Tell the bot your name in Telegram and the web UI remembers it — conversations stay continuous across clients.
 
 ---
 
 ## Deploy to Nosana
 
-> **Important:** For this challenge, you must deploy your agent to Nosana's decentralized infrastructure. Do **not** use the standard `elizaos deploy` command — that deploys to centralized cloud providers. This challenge is about embracing decentralized compute.
-
-**Why Nosana?**
-- **Decentralized** — Your agent runs on a distributed network of GPU providers, not AWS/GCP/Azure
-- **Cost-effective** — Use your free builders credits (no credit card required)
-- **Permissionless** — No vendor lock-in, full control over your infrastructure
-- **Challenge requirement** — All submissions must be deployed on Nosana
-
-### Prerequisites
-
-Before deploying, ensure you have:
-- [Docker](https://docs.docker.com/get-docker/) installed and running
-- A [Docker Hub](https://hub.docker.com/) account (free)
-- Your [Nosana builders credits](https://nosana.com/builders-credits) claimed
-
-### Step 1: Build and Push Your Docker Image
-
-Your agent needs to be containerized and available on a public registry (Docker Hub) so Nosana nodes can pull and run it.
+Build and push the image:
 
 ```bash
-# Build your Docker image
-docker build -t yourusername/nosana-eliza-agent:latest .
-
-# Test it locally first (recommended)
-docker run -p 3000:3000 --env-file .env yourusername/nosana-eliza-agent:latest
-
-# Visit http://localhost:3000 to verify it works
-
-# Log in to Docker Hub
-docker login
-
-# Push to Docker Hub (make it public)
-docker push yourusername/nosana-eliza-agent:latest
+docker build -t <dockerhub-user>/elizaclip:latest .
+docker push <dockerhub-user>/elizaclip:latest
 ```
 
-> **Tip:** Replace `yourusername` with your actual Docker Hub username. Make sure your repository is **public** so Nosana nodes can pull it.
-
-### Step 2: Configure Your Job Definition
-
-Edit `nos_job_def/nosana_eliza_job_definition.json` and update the Docker image reference:
+Create a Nosana job definition (keep secrets out of git — this file is gitignored):
 
 ```json
 {
   "version": "0.1",
   "type": "container",
-  "meta": {
-    "trigger": "cli"
-  },
+  "meta": { "trigger": "dashboard" },
   "ops": [
     {
       "type": "container/run",
-      "id": "eliza-agent",
+      "id": "elizaclip",
       "args": {
-        "image": "yourusername/nosana-eliza-agent:latest",  // <- Change this
-        "ports": ["3000:3000"],
+        "image": "<dockerhub-user>/elizaclip:latest",
+        "expose": [{ "port": 3000 }],
         "env": {
+          "TELEGRAM_BOT_TOKEN": "…",
           "OPENAI_API_KEY": "nosana",
-          "OPENAI_API_URL": "https://6vq2bcqphcansrs9b88ztxfs88oqy7etah2ugudytv2x.node.k8s.prd.nos.ci/v1",
-          "MODEL_NAME": "Qwen3.5-27B-AWQ-4bit"
+          "OPENAI_BASE_URL": "http://127.0.0.1:3939/v1",
+          "OPENAI_LARGE_MODEL": "Qwen3.5-9B-FP8",
+          "OPENAI_SMALL_MODEL": "Qwen3.5-9B-FP8",
+          "OPENAI_EMBEDDING_URL": "https://4yiccatpyxx773jtewo5ccwhw1s2hezq5pehndb6fcfq.node.k8s.prd.nos.ci/v1",
+          "OPENAI_EMBEDDING_API_KEY": "nosana",
+          "OPENAI_EMBEDDING_MODEL": "Qwen3-Embedding-0.6B",
+          "OPENAI_EMBEDDING_DIMENSIONS": "1024",
+          "YOUTUBE_CLIENT_ID": "…",
+          "YOUTUBE_CLIENT_SECRET": "…",
+          "YOUTUBE_REFRESH_TOKEN": "…",
+          "SERVER_PORT": "3000",
+          "NODE_ENV": "production"
         }
       }
     }
@@ -276,211 +225,63 @@ Edit `nos_job_def/nosana_eliza_job_definition.json` and update the Docker image 
 }
 ```
 
-> **Security Note:** For production deployments, avoid hardcoding sensitive environment variables. Consider using Nosana secrets management or external secret stores.
-
-### Step 3: Deploy via Nosana Dashboard (Easiest)
-
-This is the recommended method for beginners:
-
-1. Visit the [Nosana Dashboard](https://dashboard.nosana.com/deploy)
-2. Connect your Solana wallet (you need this for authentication and using credits)
-3. Click **Expand** to open the job definition editor
-4. Copy and paste the contents of your `nos_job_def/nosana_eliza_job_definition.json` file
-5. Select your preferred compute market:
-   - `nvidia-3090` — High performance (recommended for production)
-   - `nvidia-rtx-4090` — Premium performance
-   - `cpu-only` — Budget option (slower inference)
-6. Click **Deploy**
-7. Wait for a node to pick up your job (usually 30-60 seconds)
-8. Once running, you'll receive a public URL to access your agent
-
-### Step 4: Deploy via Nosana CLI (Advanced)
-
-For developers who prefer the command line or want to automate deployments:
-
-1. First get your API key at [https://deploy.nosana.com/account/](https://deploy.nosana.com/account/)
-2. Edit the [Nosana ElizaOS Job Definition File](./nos_job_def/nosana_eliza_job_definition.json)
-3. Learn more about [Nosana Job Definition Here](https://learn.nosana.com/deployments/jobs/job-definition/intro.html)
+Deploy via the [Nosana Dashboard](https://dashboard.nosana.com/deploy) or CLI:
 
 ```bash
-# Install the Nosana CLI globally
-npm install -g @nosana/cli
-
-# Deploy your agent
-nosana job post \
-  --file ./nos_job_def/nosana_eliza_job_definition.json \
-  --market nvidia-4090 \
-  --timeout 300 \
-  --api <API_KEY>
-
-# Monitor your deployment
-nosana job status <job-id>
-
-# View logs
-nosana job logs <job-id>
+nosana job post --file ./nosana-job.json --market nvidia-3090 --timeout 300
 ```
 
-**CLI Flags Explained:**
-- `--file` — Path to your job definition JSON
-- `--market` — Which GPU market to use (nvidia-3090, nvidia-rtx-4090, etc.)
-- `--timeout` — Maximum job runtime in minutes
-
-### Step 5: Verify Your Deployment
-
-Once your job is running on Nosana:
-
-1. **Test the endpoint** — Visit the public URL provided by Nosana
-2. **Check agent responsiveness** — Send a test message to your agent
-3. **Monitor logs** — Use the Nosana Dashboard or CLI to view logs
-4. **Verify inference** — Ensure the Qwen3.5-27B model is responding correctly
-
-### Troubleshooting
-
-**Agent not starting?**
-- Check that your Docker image is public on Docker Hub
-- Verify your job definition JSON is valid
-- Ensure environment variables are correctly set
-- Check Nosana dashboard logs for error messages
-
-**Slow response times?**
-- Consider using a higher-tier GPU market (nvidia-rtx-4090)
-- Optimize your ElizaOS configuration
-- Check if the Nosana inference endpoint is reachable
-
-**Out of credits?**
-- Visit [nosana.com/builders-credits](https://nosana.com/builders-credits) to check your balance
-- Credits are airdropped twice daily — be patient if you just signed up
-
-**Need help?**
-- Join the [Nosana Discord](https://nosana.com/discord) for support
-- Check the [Nosana documentation](https://learn.nosana.io)
-- Review the [Nosana CLI docs](https://github.com/nosana-ci/nosana-cli)
+The container boots [docker-start.sh](docker-start.sh), which spawns the local Qwen proxy (`scripts/qwen-proxy.ts`) on `127.0.0.1:3939` and then `pnpm start`. The proxy fronts the Nosana-hosted inference endpoint so the OpenAI plugin can hit a stable localhost URL.
 
 ---
 
-## What You'll Build
+## How Actions Work
 
-Your submission should include:
-- **A working AI agent** built with ElizaOS
-- **A frontend interface** to interact with your agent (web UI, chat interface, dashboard, etc.)
-- **Deployment on Nosana** — your agent must run on Nosana's decentralized infrastructure
+Each action is a small ElizaOS [Action](https://elizaos.github.io/eliza/docs/core/actions): a `validate()` that decides when to fire, and a `handler()` that does the work and calls `callback()` to reply.
 
-**The deeper your Nosana integration, the better your score.** We're looking for projects that fully embrace decentralized infrastructure — not just a minimal deployment, but thoughtful integration into your architecture.
+**Example — `CLIP_YOUTUBE_VIDEO`:**
 
-### Examples of Deep Integration (Better Scores):
-- Using Nosana for both training and inference
-- Multi-node deployments across Nosana's network
-- Custom deployment pipelines using Nosana CLI
-- Monitoring and observability integrated with Nosana infrastructure
-- Storage solutions that leverage decentralized networks
-- Creative use of Nosana's compute marketplace
+1. `validate`: message contains clip keyword and a YouTube URL (or one remembered for this room).
+2. `handler`:
+   - `yt-dlp` downloads ≤720p mp4
+   - Fetch captions (English → Indonesian fallback)
+   - LLM (`ModelType.TEXT_LARGE`) picks 3 viral moments + titles + hashtags, returns JSON
+   - `ffmpeg` renders each clip as vertical 1080×1920 with a blurred background for letterboxing, audio re-encoded to AAC 128k
+   - Writes `GeneratedClip[]` to the per-room cache (disk-backed, survives restarts)
+   - Sends each clip back as a video message
 
----
-
-## Submission
-
-Submit your project via the official submission page: **[superteam.fun/earn/listing/nosana-builders-elizaos-challenge/](https://superteam.fun/earn/listing/nosana-builders-elizaos-challenge/)** before **April 14, 2026**.
-
-**Submission Checklist** — All items are required:
-
-- [ ] **Fork this repository** and build your agent on the `elizaos-challenge` branch
-- [ ] **Build a frontend/UI** for interacting with your agent
-- [ ] **Deploy to Nosana** and get your public deployment URL (agent must run on Nosana infrastructure)
-- [ ] **Star the following repositories:**
-  - [ ] [nosana-ci/agent-challenge](https://github.com/nosana-ci/agent-challenge)
-  - [ ] [nosana-ci/nosana-programs](https://github.com/nosana-ci/nosana-programs)
-  - [ ] [nosana-ci/nosana-kit](https://github.com/nosana-ci/nosana-kit)
-  - [ ] [nosana-ci/nosana-cli](https://github.com/nosana-ci/nosana-cli)
-- [ ] **Make a social media post** about your project on your platform of choice (X/Twitter, LinkedIn, Bluesky, Instagram, or other)
-- [ ] **Provide your GitHub fork link** (public repository)
-- [ ] **Provide your Nosana deployment URL** (running agent)
-- [ ] **Write a description** of your agent and what it does (≤300 words)
-- [ ] **Record a video demo** (<1 minute) showing your agent and frontend in action
-
-> **⚠️ Important:** Submissions that do not meet these requirements will not be considered.
-
-> For complete submission requirements and additional information, visit the [official challenge page](https://superteam.fun/earn/listing/nosana-builders-elizaos-challenge/).
+The cache ([src/youtube/cache.ts](src/youtube/cache.ts)) is keyed by `roomId`, so Telegram chats and web rooms have independent clip lists but share the agent's memory and character.
 
 ---
 
-## Judging Criteria
+## Development Tips
 
-| Criterion | Weight |
-|-----------|--------|
-| Technical implementation | 25% |
-| Nosana integration depth | 25% |
-| Usefulness & UX | 25% |
-| Creativity & originality | 15% |
-| Documentation | 10% |
-
-**Judging Details:**
-- **Technical implementation (25%)** — Code quality, architecture, and ElizaOS best practices
-- **Nosana integration depth (25%)** — How deeply Nosana is integrated into your deployment and infrastructure
-- **Usefulness & UX (25%)** — Real-world applicability, frontend quality, and user experience
-- **Creativity & originality (15%)** — Innovative use cases and novel approaches
-- **Documentation (10%)** — Code quality, README, setup instructions
-
-**Judges:** DevRel Lead & Ecosystem Specialist, Nosana
+- **`elizaos start` has no hot reload** — restart the process after edits, or use `elizaos dev`.
+- **Plugin routes mount at `/api/agents/:id/plugins/<plugin-name>/<route>`.** ElizaOS prefixes with the plugin name, so my `/chat` route lives at `…/plugins/elizaclip/chat`.
+- **Clip files are served with HTTP Range support** (206 Partial Content). Browsers and Safari need this to seek in `<video>` tags.
+- **The Qwen proxy must be running before the agent starts.** Locally: `bun run proxy` in one shell, `bun run dev` in another. In Docker, `docker-start.sh` handles order.
 
 ---
 
-## Project Structure
+## Security Notes
 
-```
-├── characters/
-│   └── agent.character.json   # Your agent's character definition
-├── src/
-│   └── index.ts               # Custom plugin entry point (optional)
-├── nos_job_def/
-│   └── nosana_eliza_job_definition.json  # Nosana deployment config
-├── Dockerfile                 # Container configuration
-├── .env.example               # Environment variable template
-└── package.json
-```
+- **`nosana-job.json` is gitignored** because it contains your Telegram and YouTube secrets. Never commit it.
+- Rotate the YouTube refresh token after any suspected exposure at [myaccount.google.com/permissions](https://myaccount.google.com/permissions).
+- Nosana job definitions are publicly readable on-chain — treat the env block like a pastebin. Use short-lived tokens where possible.
 
 ---
 
 ## Resources
 
-### ElizaOS
-- [ElizaOS Documentation](https://elizaos.github.io/eliza/docs) — Full framework docs
-- [ElizaOS Plugin Directory](https://elizaos.github.io/eliza/docs/core/plugins) — Browse available plugins
-- [ElizaOS GitHub](https://github.com/elizaos/eliza) — Source code and examples
-- [ElizaOS Discord](https://discord.gg/elizaos) — Community support
-
-### Nosana
-- [Nosana Documentation](https://docs.nosana.io) — Platform guide
-- [Nosana Dashboard](https://dashboard.nosana.com) — Deploy and manage jobs
-- [Nosana CLI](https://github.com/nosana-ci/nosana-cli) — Command-line deployment
-- [Nosana Discord](https://nosana.com/discord) — Support and endpoint URL
-
-### Qwen3.5
-- [Qwen3.5-27B on HuggingFace](https://huggingface.co/Qwen/Qwen3.5-27B)
+- [ElizaOS docs](https://elizaos.github.io/eliza/docs)
+- [Nosana Dashboard](https://dashboard.nosana.com)
+- [yt-dlp](https://github.com/yt-dlp/yt-dlp) · [ffmpeg](https://ffmpeg.org)
+- [YouTube Data API v3](https://developers.google.com/youtube/v3)
 
 ---
-
-## Support & Community
-
-- **Discord** — Join [Nosana Discord](https://nosana.com/discord) for support, the Nosana endpoint URL, and to connect with other builders
-- **Twitter/X** — Follow [@nosana_ai](https://x.com/nosana_ai) and [@elizaos](https://x.com/elizaos) for updates
-- **GitHub** — Open an issue in this repo if you find problems with the template
-
----
-
-## Star History
-
-<a href="https://www.star-history.com/?repos=nosana-ci%2Fagent-challenge&type=date&legend=top-left">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/image?repos=nosana-ci/agent-challenge&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/image?repos=nosana-ci/agent-challenge&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/image?repos=nosana-ci/agent-challenge&type=date&legend=top-left" />
- </picture>
-</a>
 
 ## License
 
-This template is open source and available under the [MIT License](./LICENSE).
-
----
+MIT — see [LICENSE](./LICENSE).
 
 **Built with ElizaOS · Deployed on Nosana · Powered by Qwen3.5**
